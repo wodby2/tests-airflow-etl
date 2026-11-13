@@ -1,8 +1,8 @@
 """Loads the European Central Bank's daily euro exchange rates into the warehouse.
 
-Every day Airflow runs the DAG for the previous day: it downloads that day's
-rates from the Frankfurter API, turns them into one row per currency, and
-upserts the rows into PostgreSQL. A second step rebuilds the monthly averages.
+Every morning Airflow loads the previous day: it downloads that day's rates
+from the Frankfurter API, turns them into one row per currency, and upserts the
+rows into PostgreSQL. A second step rebuilds the monthly averages.
 """
 
 from datetime import timedelta
@@ -16,8 +16,9 @@ CURRENCIES = ["USD", "GBP", "JPY", "CHF", "CNY"]
 
 
 @dag(
-    schedule="@daily",
-    start_date=pendulum.datetime(2026, 11, 1, tz="UTC"),
+    # Every day at 06:00 UTC, after the ECB has published the previous day's rates.
+    schedule="0 6 * * *",
+    start_date=pendulum.datetime(2026, 11, 2, tz="UTC"),
     # Runs the days since start_date that have not run yet.
     catchup=True,
     max_active_runs=1,
@@ -28,7 +29,7 @@ def exchange_rates():
     @task
     def extract() -> dict:
         # The day this run covers: the run on November 13 loads November 12.
-        day = get_current_context()["data_interval_start"].to_date_string()
+        day = get_current_context()["logical_date"].subtract(days=1).to_date_string()
         response = requests.get(
             f"https://api.frankfurter.dev/v1/{day}",
             params={"symbols": ",".join(CURRENCIES)},
